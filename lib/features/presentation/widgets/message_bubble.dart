@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/responsive_helper.dart';
@@ -202,15 +204,7 @@ class _MessageBubbleState extends State<MessageBubble>
           children: [
             GestureDetector(
               onLongPress: () => _copyMessage(context),
-              child: SelectableText(
-                widget.message.text,
-                style: TextStyle(
-                  color: const Color(AppConstants.textColorDarkValue),
-                  fontSize: fontSize,
-                  height: 1.5,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
+              child: _buildBotMessageContent(context, fontSize),
             ),
             const SizedBox(height: 6),
             Text(
@@ -271,6 +265,164 @@ class _MessageBubbleState extends State<MessageBubble>
       ),
       child: Icon(Icons.person_rounded, color: Colors.white, size: size * 0.6),
     );
+  }
+
+  Widget _buildBotMessageContent(BuildContext context, double fontSize) {
+    final messageText = widget.message.text;
+    
+    // Check if message contains HTML references section
+    final referencesMatch = RegExp(
+      r'<div class="references">.*?</div>',
+      dotAll: true,
+    ).firstMatch(messageText);
+    
+    String mainContent = messageText;
+    List<Map<String, String>> references = [];
+    
+    if (referencesMatch != null) {
+      // Extract main content without references
+      mainContent = messageText.substring(0, referencesMatch.start).trim();
+      
+      // Extract references
+      final referencesHtml = referencesMatch.group(0) ?? '';
+      final linkMatches = RegExp(
+        r'<a href="([^"]+)"[^>]*>([^<]+)</a>',
+      ).allMatches(referencesHtml);
+      
+      for (final match in linkMatches) {
+        references.add({
+          'url': match.group(1) ?? '',
+          'title': match.group(2) ?? '',
+        });
+      }
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Main content with markdown
+        MarkdownBody(
+          data: mainContent,
+          selectable: true,
+          styleSheet: MarkdownStyleSheet(
+            p: TextStyle(
+              color: const Color(AppConstants.textColorDarkValue),
+              fontSize: fontSize,
+              height: 1.5,
+              fontWeight: FontWeight.w400,
+            ),
+            strong: TextStyle(
+              color: const Color(AppConstants.textColorDarkValue),
+              fontSize: fontSize,
+              fontWeight: FontWeight.bold,
+            ),
+            listBullet: TextStyle(
+              color: const Color(AppConstants.primaryColorValue),
+              fontSize: fontSize,
+            ),
+            listIndent: 20,
+            a: TextStyle(
+              color: const Color(AppConstants.primaryColorValue),
+              fontSize: fontSize,
+              decoration: TextDecoration.underline,
+            ),
+          ),
+          onTapLink: (text, href, title) {
+            if (href != null) {
+              _launchUrl(href);
+            }
+          },
+        ),
+        
+        // References section
+        if (references.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _buildReferencesSection(context, references, fontSize),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildReferencesSection(
+    BuildContext context,
+    List<Map<String, String>> references,
+    double fontSize,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(AppConstants.primaryColorValue).withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(AppConstants.primaryColorValue).withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.library_books_rounded,
+                size: 16,
+                color: Color(AppConstants.primaryColorValue),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'المراجع',
+                style: TextStyle(
+                  color: const Color(AppConstants.textColorDarkValue),
+                  fontSize: fontSize - 1,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...references.map((ref) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: InkWell(
+                  onTap: () => _launchUrl(ref['url']!),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.link_rounded,
+                        size: 14,
+                        color: Color(AppConstants.primaryColorValue),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          ref['title']!,
+                          style: TextStyle(
+                            color: const Color(AppConstants.primaryColorValue),
+                            fontSize: fontSize - 2,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchUrl(String urlString) async {
+    try {
+      final url = Uri.parse(urlString);
+      if (await canLaunchUrl(url)) {
+        await launchUrl(
+          url,
+          mode: LaunchMode.externalApplication,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error launching URL: $e');
+    }
   }
 
   Future<void> _copyMessage(BuildContext context) async {
